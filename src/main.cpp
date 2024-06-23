@@ -3,8 +3,8 @@
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 
-const char* ssid = "MERCUSYS_22E9";
-const char* password = "Kausaki@23";
+const char* ssid = "<YOUR SSID>";
+const char* password = "<YOUR PASSWORD>";
 
 #ifdef RGB_BUILTIN
 #undef RGB_BUILTIN
