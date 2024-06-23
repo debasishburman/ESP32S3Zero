@@ -1,29 +1,52 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
-#include <ArduinoJson.h>
+#include <HTTPClient.h>
 
-const char* ssid = "<YOUR SSID>";
-const char* password = "<YOUR PASSWORD>";
+const char* ssid = "MERCUSYS_22E9";
+const char* password = "Kausaki@23";
+const char* googleScriptURL = "YOUR_GOOGLE_SCRIPT_URL"; // Replace with your Google Script URL
 
-#ifdef RGB_BUILTIN
-#undef RGB_BUILTIN
-#endif
 #define RGB_BUILTIN 21
+#define RGB_BRIGHTNESS 255
 
 AsyncWebServer server(80);
 
 void blinkLED() {
-  neopixelWrite(RGB_BUILTIN,RGB_BRIGHTNESS,RGB_BRIGHTNESS,RGB_BRIGHTNESS); // Turn the LED on
+  neopixelWrite(RGB_BUILTIN, RGB_BRIGHTNESS, RGB_BRIGHTNESS, RGB_BRIGHTNESS); // Turn the LED on
   delay(2000); // Wait for 2 seconds
-  neopixelWrite(RGB_BUILTIN,0,0,0); // Turn the LED off
+  neopixelWrite(RGB_BUILTIN, 0, 0, 0); // Turn the LED off
+}
+
+void sendToGoogleSheet(const String& ipAddress, const String& name, const String& wishDate, const String& wishItem, const String& wishWhen, const String& remarks) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(googleScriptURL);
+
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+    String postData = "ipAddress=" + ipAddress + "&name=" + name + "&wishDate=" + wishDate + "&wishItem=" + wishItem + "&wishWhen=" + wishWhen + "&remarks=" + remarks;
+
+    int httpResponseCode = http.POST(postData);
+
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.println(httpResponseCode);
+      Serial.println(response);
+    } else {
+      Serial.print("Error on sending POST: ");
+      Serial.println(httpResponseCode);
+    }
+
+    http.end();
+  }
 }
 
 void setup() {
   Serial.begin(115200);
 
   // Initialize the LED pin
-  neopixelWrite(RGB_BUILTIN,0,0,0); // Turn the LED off
+  neopixelWrite(RGB_BUILTIN, 0, 0, 0); // Turn the LED off
   
   // Connect to Wi-Fi
   WiFi.begin(ssid, password);
@@ -39,7 +62,7 @@ void setup() {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Number Converter</title>
+        <title>Wish Submission</title>
         <style>
           body {
             font-family: Arial, sans-serif;
@@ -55,6 +78,11 @@ void setup() {
             color: #4682b4;
           }
           input {
+            padding: 10px;
+            font-size: 16px;
+            margin: 5px;
+          }
+          textarea {
             padding: 10px;
             font-size: 16px;
             margin: 5px;
@@ -79,42 +107,27 @@ void setup() {
         </style>
       </head>
       <body>
-        <h1>Number Converter</h1>
-        <input type="number" id="decimalInput" placeholder="Enter a decimal number">
-        <button onclick="convertDecimalToBinary()">Convert to Binary</button>
-        <input type="text" id="binaryInput" placeholder="Enter a binary number">
-        <button onclick="convertBinaryToDecimal()">Convert to Decimal</button>
+        <h1>Submit Your Wish</h1>
+        <input type="text" id="name" placeholder="Enter your name">
+        <input type="date" id="wishDate" placeholder="Date of wish">
+        <input type="text" id="wishItem" placeholder="What do you wish for?">
+        <input type="text" id="wishWhen" placeholder="When do you want it?">
+        <textarea id="remarks" placeholder="Any remarks"></textarea>
+        <button onclick="submitWish()">Submit</button>
         <div class="response" id="response"></div>
 
         <script>
-          function convertDecimalToBinary() {
-            const decimal = document.getElementById('decimalInput').value;
-            fetch(`/convert?type=decimalToBinary&number=${decimal}`)
-              .then(response => response.json())
+          function submitWish() {
+            const name = document.getElementById('name').value;
+            const wishDate = document.getElementById('wishDate').value;
+            const wishItem = document.getElementById('wishItem').value;
+            const wishWhen = document.getElementById('wishWhen').value;
+            const remarks = document.getElementById('remarks').value;
+            fetch(`/submit?name=${name}&wishDate=${wishDate}&wishItem=${wishItem}&wishWhen=${wishWhen}&remarks=${remarks}`)
+              .then(response => response.text())
               .then(data => {
                 const responseDiv = document.getElementById('response');
-                if (data.error) {
-                  responseDiv.innerHTML = `<p style="color: red;">${data.message}</p>`;
-                } else {
-                  responseDiv.innerHTML = `<p>Decimal: ${data.decimal}</p><p>Binary: ${data.binary}</p>`;
-                }
-              })
-              .catch(error => {
-                console.error('Error:', error);
-              });
-          }
-
-          function convertBinaryToDecimal() {
-            const binary = document.getElementById('binaryInput').value;
-            fetch(`/convert?type=binaryToDecimal&number=${binary}`)
-              .then(response => response.json())
-              .then(data => {
-                const responseDiv = document.getElementById('response');
-                if (data.error) {
-                  responseDiv.innerHTML = `<p style="color: red;">${data.message}</p>`;
-                } else {
-                  responseDiv.innerHTML = `<p>Binary: ${data.binary}</p><p>Decimal: ${data.decimal}</p>`;
-                }
+                responseDiv.innerHTML = `<p>${data}</p>`;
               })
               .catch(error => {
                 console.error('Error:', error);
@@ -127,44 +140,25 @@ void setup() {
   });
 
   // Define the REST API endpoint
-  server.on("/convert", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (request->hasParam("type") && request->hasParam("number")) {
-      String type = request->getParam("type")->value();
-      String numberStr = request->getParam("number")->value();
-      DynamicJsonDocument doc(200);
+  server.on("/submit", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (request->hasParam("name") && request->hasParam("wishDate") && request->hasParam("wishItem") && request->hasParam("wishWhen") && request->hasParam("remarks")) {
+      String name = request->getParam("name")->value();
+      String wishDate = request->getParam("wishDate")->value();
+      String wishItem = request->getParam("wishItem")->value();
+      String wishWhen = request->getParam("wishWhen")->value();
+      String remarks = request->getParam("remarks")->value();
 
-      if (type == "decimalToBinary") {
-        int decimal = numberStr.toInt();
-        String binaryStr = String(decimal, BIN);
-        doc["decimal"] = decimal;
-        doc["binary"] = binaryStr;
-      } else if (type == "binaryToDecimal") {
-        int decimal = strtol(numberStr.c_str(), NULL, 2);
-        doc["binary"] = numberStr;
-        doc["decimal"] = decimal;
-      } else {
-        doc["error"] = "Bad Request";
-        doc["message"] = "Invalid conversion type";
-        String response;
-        serializeJson(doc, response);
-        request->send(400, "application/json", response);
-        return;
-      }
+      String ipAddress = request->client()->remoteIP().toString();
 
-      String response;
-      serializeJson(doc, response);
-      request->send(200, "application/json", response);
-      
+      // Send data to Google Sheets
+      sendToGoogleSheet(ipAddress, name, wishDate, wishItem, wishWhen, remarks);
+
+      request->send(200, "text/plain", "Wish Submitted Successfully");
+
       // Blink the LED on successful response
       blinkLED();
     } else {
-      DynamicJsonDocument doc(200);
-      doc["error"] = "Bad Request";
-      doc["message"] = "Parameters 'type' and 'number' are missing";
-
-      String response;
-      serializeJson(doc, response);
-      request->send(400, "application/json", response);
+      request->send(400, "text/plain", "Bad Request: Missing required parameters");
     }
   });
 
